@@ -48,15 +48,14 @@ class MnistDNN:
 
         nth = 0
         for nth, num_cells in enumerate(self._hidden_layers):
-            fc = self.fc_layer(activation, pre_num_cells, num_cells, "fc_%d" % nth)
+            layer_name = "fc_%d" % nth
+            activation = self.fc_layer(activation, pre_num_cells, num_cells, layer_name)
             pre_num_cells = num_cells
-            activation = tf.nn.relu(fc)
-            tf.summary.histogram("fc/relu", activation)
 
-        fc = self.fc_layer(activation, pre_num_cells, 10, "fc_%d" % (nth + 1))
-
-        logit = tf.nn.relu(fc)
-        tf.summary.histogram("fc/relu", logit)
+        layer_name = "fc_%d" % (nth + 1)
+        logit = self.weighted_input(activation, pre_num_cells, 10, layer_name)
+        # logit = tf.nn.relu(fc)
+        tf.summary.histogram("%s/relu" % layer_name, logit)
 
         with tf.name_scope("cross_entropy"):
             cross_entropy = tf.reduce_mean(
@@ -70,11 +69,11 @@ class MnistDNN:
             self._train_op = optimizer.minimize(cross_entropy)
 
         with tf.name_scope("accuracy"):
-            correct_prediction = tf.equal(tf.argmax(activation, 1), tf.argmax(self._y, 1))
+            correct_prediction = tf.equal(tf.argmax(logit, 1), tf.argmax(self._y, 1))
             self._accuracy_op = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
             tf.summary.scalar("accuracy", self._accuracy_op)
 
-    def run(self):
+    def run(self, num_epochs=2001, batch_size=100):
         self._summary = tf.summary.merge_all()
 
         saver = tf.train.Saver()
@@ -83,14 +82,14 @@ class MnistDNN:
         writer = tf.summary.FileWriter(self.LOGDIR + self.get_hparam())
         writer.add_graph(self._session.graph)
 
-        for i in range(2001):
-            batch = self.mnist.train.next_batch(100)
+        for i in range(num_epochs):
+            xs, ys = self.mnist.train.next_batch(batch_size)
             if i % 5 == 0:
                 [train_accuracy, s] = self._session.run(
                     [self._accuracy_op, self._summary],
-                    feed_dict={self._x: batch[0], self._y: batch[1]}
+                    feed_dict={self._x: xs, self._y: ys}
                 )
-                print("Train accuracy: %e" % train_accuracy)
+                print("Train accuracy (%%): %.4f" % (train_accuracy * 100))
                 writer.add_summary(s, i)
 
             if i % 500 == 0:
@@ -98,19 +97,28 @@ class MnistDNN:
 
             self._session.run(
                 self._train_op,
-                feed_dict={self._x: batch[0], self._y: batch[1]}
+                feed_dict={self._x: xs, self._y: ys}
             )
 
     @staticmethod
-    def fc_layer(input, size_in, size_out, name="fc"):
+    def weighted_input(input, size_in, size_out, name="weighted_input"):
         with tf.name_scope(name):
             w = tf.Variable(tf.truncated_normal([size_in, size_out], stddev=0.1), name="Weights")
             b = tf.Variable(tf.constant(0.1, shape=[size_out]), name="Biases")
-            activation = tf.matmul(input, w) + b
+            z = tf.matmul(input, w) + b
             tf.summary.histogram("weights", w)
             tf.summary.histogram("biases", b)
-            tf.summary.histogram("activations", activation)
-            return activation
+            tf.summary.histogram("weighted_input", z)
+
+        return z
+
+    def fc_layer(self, input, size_in, size_out, name="fc"):
+        with tf.name_scope(name):
+            z = self.weighted_input(input, size_in=size_in, size_out=size_out, name="weighted_input")
+            activation = tf.nn.relu(z)
+            tf.summary.histogram("relu", activation)
+        return activation
+
 
     def get_hparam(self):
         dir_name = ""
