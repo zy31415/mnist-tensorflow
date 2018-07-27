@@ -1,0 +1,6 @@
+# conda install:
+tensorflow==1.9.0
+setuptools==39.1.0
+tensorboard==1.9.0
+
+jupyter
